@@ -30,7 +30,9 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var src_exports = {};
 __export(src_exports, {
   Box: () => Box,
-  Store: () => Store
+  Store: () => Store,
+  curryF: () => curryF,
+  curryN: () => curryN
 });
 module.exports = __toCommonJS(src_exports);
 
@@ -1165,11 +1167,55 @@ Box.sym = {
   symErr,
   symNoData
 };
+
+// src/helpers.js
+var C = __toESM(require("crocks"), 1);
+function curryN(n, fn) {
+  return function() {
+    var xs = [], len = arguments.length;
+    while (len--)
+      xs[len] = arguments[len];
+    var args = xs.length ? xs : [void 0];
+    var remaining = Math.floor(n) - args.length;
+    return remaining > 0 ? curryN(remaining, Function.bind.apply(fn, [null].concat(args))) : fn.apply(null, args.slice(0));
+  };
+}
+function curryF(nfn, fn) {
+  if (!C.isArray(nfn))
+    throw new TypeError("curryF first parameter should be array of functions/null");
+  const getNextMatch = (nfn2, k, x) => nfn2.slice(k).reduce((acc, v, i) => acc === null && v !== null && C.isFunction(v) && v(x) ? k + i : null, null);
+  return function() {
+    var _xs = [], xs = [], len = arguments.length;
+    while (len--)
+      _xs[len] = arguments[len];
+    let j = 0;
+    for (let i = 0; i < _xs.length; i++, j++) {
+      if (j >= nfn.length || nfn[j] !== null) {
+        xs.push(_xs[i]);
+        continue;
+      } else if (nfn[j] === null) {
+        let k = getNextMatch(nfn, j + 1, _xs[i]);
+        if (k) {
+          for (let a = 0; a < k - j; a++)
+            xs.push(void 0);
+          j = k;
+        }
+        xs.push(_xs[i]);
+      }
+    }
+    var args = xs.length ? xs : [void 0];
+    var remaining = nfn.slice(j);
+    return remaining.length > 0 ? curryF(remaining, Function.bind.apply(fn, [null].concat(args))) : fn.apply(null, args.slice(0));
+  };
+}
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   Box,
-  Store
+  Store,
+  curryF,
+  curryN
 });
 /** @license ISC License (c) copyright 2016 original and current authors */
 /** @license ISC License (c) copyright 2023 */
 /** @license GNU Public License V3 (c) copyright 2024 */
+/** @license ISC License (c) copyright 2017 original and current authors */
