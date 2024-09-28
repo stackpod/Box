@@ -1,5 +1,5 @@
-/** @license ISC License (c) copyright 2023 */
-/** @author Moorthy RS (rsmoorthy@gmail.com)  */
+/** @license GNU Public License V3 (c) copyright 2024 */
+/** @author Moorthy RS (rsm@stackpod.io)  */
 
 /* Interface:
  *  Box(fn, [u]) or Box(u)
@@ -195,7 +195,7 @@ function fromPromise(fn) {
 
   const _fn = curry(fn)
 
-  return function() {
+  return function () {
     var args = arguments
 
     const promise = _fn.apply(null, args)
@@ -218,7 +218,7 @@ function fromPromise(fn) {
 function fromPromiseLazy(fn) {
   if (!isFunction(fn)) throw new Error("Box.fromPromiseLazy: Promise returning function required")
 
-  return function() {
+  return function () {
     var args = arguments
 
     return Box((resolve, state) => {
@@ -362,7 +362,7 @@ const unsafeFst = (a) => a[0]
 const unsafeSnd = (a) => a[1]
 
 // _of :: a -> s -> Box r s
-var _of = function(x, st) {
+var _of = function (x, st) {
   let u = result.includes(x) ? x : result.Ok(x)
   let fn1 = (resolve, s) => resolve(Pair(u, s || st))
   fn1.nm = "Box.of"
@@ -707,7 +707,7 @@ export function Box(fn, u, st) {
     return x === symNoData ? caseOf : constant(caseOf(x))
   }
 
-  var inspect = function() {
+  var inspect = function () {
     let f = either(
       (l) => "Err" + _inspect(l),
       (r) => "Ok" + _inspect(r)
@@ -715,7 +715,7 @@ export function Box(fn, u, st) {
     return `Box ` + (isFnType("_constant", f) ? f() : _inspect(fn)) + (_state !== symNoData ? ` state: ${_state}` : "")
   }
 
-  var extract = function() {
+  var extract = function () {
     let f = either(
       (l) => "Err:" + l,
       (r) => r

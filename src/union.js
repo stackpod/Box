@@ -1,5 +1,5 @@
 /** @license ISC License (c) copyright 2016 original and current authors */
-/** @author Ian Hofmann-Hicks (evil) */
+/** @author Moorthy RS (rsm@stackpod.io) Modified from https://github.com/evilsoft/crocks/blob/master/src/core/defineUnion.js */
 
 import { default as crocks } from "crocks"
 
