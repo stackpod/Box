@@ -1,6 +1,6 @@
 {
   "name": "@stackpod/box",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Monad that combines Result, Async and State",
   "main": "dist/cjs/index.cjs",
   "module": "src/index.mjs",
@@ -11,7 +11,8 @@
   },
   "scripts": {
     "test": "node src/Box.spec.js && node src/Store.spec.js",
-    "build": "esbuild --bundle src/index.mjs --packages=external --outfile=dist/cjs/index.cjs --platform=node"
+    "build": "esbuild --bundle src/index.mjs --packages=external --outfile=dist/cjs/index.cjs --platform=node",
+    "prepack": "npm run build"
   },
   "repository": {
     "type": "git",
