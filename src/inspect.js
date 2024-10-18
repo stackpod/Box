@@ -5,8 +5,8 @@ const { isFunction, isString, isArray, isObject, isSymbol, isDate } = crocks
 function arrayInspect(xs) {
   return xs.length
     ? xs.map(inspect).reduce(function (a, x) {
-        return a + "," + x
-      })
+      return a + "," + x
+    })
     : xs
 }
 // inspect : a -> String
@@ -37,7 +37,7 @@ export function inspect(x) {
   }
 
   if (isString(x)) {
-    if (x.length > 100) return ' "' + x.slice(0, 100) + `.... (${x.length})"`
+    if (x.length > 300) return ' "' + x.slice(0, 300) + `.... (${x.length})"`
     return ' "' + x + '"'
   }
 

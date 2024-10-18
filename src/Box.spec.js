@@ -464,7 +464,7 @@ test("Box race functionality", function (t) {
 })
 
 test("Box traverse functionality", function (t) {
-  t.plan(35)
+  t.plan(41)
   const err = /must be a function|method needs to be|mode needs to be|Need to return type Box/
   t.throws(() => Box(1).traverse(), err, "traverse function should be provided")
   t.throws(() => Box(1).traverse(unit, null), err, "traverse method should be okay")
@@ -515,137 +515,227 @@ test("Box traverse functionality", function (t) {
     .traverse((x) => delay(x * 100)(x))
     .run(verify("traverse array value with variable delays return ordered", Box.Ok([3, 2, 1])))
 
-  // traverse parallel runs
-  let start = Date.now()
-  Box.Ok([2, 2, 3])
-    .traverse(delay(100), Box.TraverseAll, Box.TraverseParallel)
-    .run((x) => {
-      t.ok(Date.now() - start < 110 + diff, `parallel run does not take x*times: ${Date.now() - start}`)
-      verify("traverse array value match", Box.Ok([2, 2, 3]))(x)
-    })
+  {
+    // traverse parallel runs
+    let start = Date.now()
+    Box.Ok([2, 2, 3])
+      .traverse(delay(100), Box.TraverseAll, Box.TraverseParallel)
+      .run((x) => {
+        t.ok(Date.now() - start < 110 + diff, `parallel run does not take x*times: ${Date.now() - start}`)
+        verify("traverse array value match", Box.Ok([2, 2, 3]))(x)
+      })
+  }
 
-  // traverse series runs
-  start = Date.now()
-  Box.Ok([2, 2, 3])
-    .traverse(delay(100), Box.TraverseAll, Box.TraverseSeries)
-    .run((x) => {
-      t.ok(Date.now() - start > 300 - diff, `series run takes x*times, dur:${Date.now() - start}`)
-      verify("traverse array value match", Box.Ok([2, 2, 3]))(x)
-    })
+  {
+    // traverse series runs
+    let start = Date.now()
+    Box.Ok([2, 2, 3])
+      .traverse(delay(100), Box.TraverseAll, Box.TraverseSeries)
+      .run((x) => {
+        let dur = Date.now() - start
+        t.ok(dur > 300 - diff, `series run takes x*times, dur:${dur}`)
+        verify("traverse array value match", Box.Ok([2, 2, 3]))(x)
+      })
+  }
 
-  // traverse any run parallel
-  start = Date.now()
-  Box.Ok([1, 2, 3])
-    .traverse((x) => (x === 3 ? delay(10)(x) : delay(100)(x)), Box.TraverseAny, Box.TraverseParallel)
-    .run((x) => {
-      t.ok(Date.now() - start < 20 + diff, `parallel run with Any takes least amount of time: ${Date.now() - start}`)
-      verify("traverse any returns only one value", Box.Ok(3))(x)
-    })
+  {
+    // traverse any run parallel
+    let start = Date.now()
+    Box.Ok([1, 2, 3])
+      .traverse((x) => (x === 3 ? delay(10)(x) : delay(100)(x)), Box.TraverseAny, Box.TraverseParallel)
+      .run((x) => {
+        let dur = Date.now() - start
+        t.ok(dur > 10 && dur < 20 + diff, `parallel run with Any takes least amount of time: ${dur}`)
+        verify("traverse any returns only one value", Box.Ok(3))(x)
+      })
+  }
 
-  // traverse any run series
-  start = Date.now()
-  Box.Ok([1, 2, 3])
-    .traverse((x) => (x === 3 ? delay(10)(x) : delay(100)(x)), Box.TraverseAny, Box.TraverseSeries)
-    .run((x) => {
-      let dur = Date.now() - start
-      t.ok(dur > 100 - diff && dur < 110 + diff, `series run with Any takes same time for the first one, dur:${dur}`)
-      verify("traverse any returns only one value", Box.Ok(1))(x)
-    })
+  {
+    // traverse any run series
+    let start = Date.now()
+    Box.Ok([1, 2, 3])
+      .traverse((x) => (x === 3 ? delay(10)(x) : delay(100)(x)), Box.TraverseAny, Box.TraverseSeries)
+      .run((x) => {
+        let dur = Date.now() - start
+        t.ok(dur > 100 - diff && dur < 110 + diff, `series run with Any takes same time for the first one, dur:${dur}`)
+        verify("traverse any returns only one value", Box.Ok(1))(x)
+      })
+  }
 
-  // traverse any run with errors
-  start = Date.now()
-  Box.Ok([1, 2, 3])
-    .traverse((x) => (x !== 3 ? Box.Err(x) : Box.Ok(x)), Box.TraverseAny, Box.TraverseParallel)
-    .run((x) => {
-      verify("traverse any returns first ok value", Box.Ok(3))(x)
-    })
+  {
+    // traverse any run with errors
+    let start = Date.now()
+    Box.Ok([1, 2, 3])
+      .traverse((x) => (x !== 3 ? Box.Err(x) : Box.Ok(x)), Box.TraverseAny, Box.TraverseParallel)
+      .run((x) => {
+        verify("traverse any returns first ok value", Box.Ok(3))(x)
+      })
+  }
 
-  // traverse any run with errors
-  start = Date.now()
-  Box.Ok([1, 2, 3])
-    .traverse((x) => (x !== 3 ? Box.Err(x) : Box.Ok(x)), Box.TraverseAny, Box.TraverseSeries)
-    .run((x) => {
-      verify("traverse any returns first ok value", Box.Ok(3))(x)
-    })
+  {
+    // traverse any run with errors
+    let start = Date.now()
+    Box.Ok([1, 2, 3])
+      .traverse((x) => (x !== 3 ? Box.Err(x) : Box.Ok(x)), Box.TraverseAny, Box.TraverseSeries)
+      .run((x) => {
+        verify("traverse any returns first ok value", Box.Ok(3))(x)
+      })
+  }
 
-  // traverse race run series
-  start = Date.now()
-  Box.Ok([1, 2, 3])
-    .traverse((x) => (x !== 3 ? Box.Err(x) : Box.Ok(x)), Box.TraverseRace, Box.TraverseSeries)
-    .run((x) => {
-      verify("traverse race returns first settled value", Box.Err(1))(x)
-    })
+  {
+    // traverse race run series
+    let start = Date.now()
+    Box.Ok([1, 2, 3])
+      .traverse((x) => (x !== 3 ? Box.Err(x) : Box.Ok(x)), Box.TraverseRace, Box.TraverseSeries)
+      .run((x) => {
+        verify("traverse race returns first settled value", Box.Err(1))(x)
+      })
+  }
 
-  // traverse race run parallel
-  start = Date.now()
-  Box.Ok([1, 2, 3])
-    .traverse((x) => (x === 3 ? Box.Ok(x) : delay(100)(x)), Box.TraverseRace, Box.TraverseParallel)
-    .run((x) => {
-      t.ok(Date.now() - start < 10 + diff, `parallel Race takes same time for first settled one: ${Date.now() - start}`)
-      verify("traverse race returns first settled value", Box.Ok(3))(x)
-    })
+  {
+    // traverse race run parallel
+    let start = Date.now()
+    Box.Ok([1, 2, 3])
+      .traverse((x) => (x === 3 ? Box.Ok(x) : delay(100)(x)), Box.TraverseRace, Box.TraverseParallel)
+      .run((x) => {
+        let dur = Date.now() - start
+        t.ok(dur < 10 + diff, `parallel Race takes same time for first settled one: ${dur}`)
+        verify("traverse race returns first settled value", Box.Ok(3))(x)
+      })
+  }
 
-  // traverse all run parallel with errors
-  start = Date.now()
-  Box.Ok([1, 2, 3])
-    .traverse((x) => (x === 3 ? Box.Err(x) : delay(100)(x)), Box.TraverseAll, Box.TraverseParallel)
-    .run((x) => {
-      t.ok(Date.now() - start < 10 + diff, `parallel All takes same time for first error one: ${Date.now() - start}`)
-      verify("traverse all returns first error encountered (if any)", Box.Err(3))(x)
-    })
+  {
+    // traverse all run parallel with errors
+    let start = Date.now()
+    Box.Ok([1, 2, 3])
+      .traverse((x) => (x === 3 ? Box.Err(x) : delay(100)(x)), Box.TraverseAll, Box.TraverseParallel)
+      .run((x) => {
+        let dur = Date.now() - start
+        t.ok(dur < 10 + diff, `parallel All takes same time for first error one: ${dur}`)
+        verify("traverse all returns first error encountered (if any)", Box.Err(3))(x)
+      })
+  }
 
-  // traverse all run parallel
-  start = Date.now()
-  Box.Ok([1, 2, 3])
-    .traverse(
-      async (x) => {
-        let b = await delay(100)(x)
-        return b.map((x) => x + 1)
-      },
-      Box.TraverseAll,
-      Box.TraverseParallel
-    )
-    .run((x) => {
-      let dur = Date.now() - start
-      t.ok(dur > 100 - diff && dur < 110 + diff, `parallel run with All takes same time for the max time one: ${dur}`)
-      verify("traverse all returns all values", Box.Ok([2, 3, 4]))(x)
-    })
+  {
+    // traverse all run parallel
+    let start = Date.now()
+    Box.Ok([1, 2, 3])
+      .traverse(
+        async (x) => {
+          let b = await delay(100)(x)
+          return b.map((x) => x + 1)
+        },
+        Box.TraverseAll,
+        Box.TraverseParallel
+      )
+      .run((x) => {
+        let dur = Date.now() - start
+        t.ok(dur > 100 - diff && dur < 110 + diff, `parallel run with All takes same time for the max time one: ${dur}`)
+        verify("traverse all returns all values", Box.Ok([2, 3, 4]))(x)
+      })
+  }
 
-  // traverse allSettled run parallel with errors
-  start = Date.now()
-  Box.Ok([1, 2, 3])
-    .traverse((x) => (x === 3 ? Box.Err(x) : delay(100)(x)), Box.TraverseAllSettled, Box.TraverseParallel)
-    .run((x) => {
-      let dur = Date.now() - start
-      t.ok(dur > 100 - diff && dur < 120 + diff, `parallel run with AllSettled waits for all of them: dur:${dur}`)
-      verify("traverse allSettled returns all of them", Box.Ok([1, 2, Box.Err(3)]))(x)
-    })
+  {
+    // traverse all run parallel with max invocations
+    let start = Date.now()
+    Box.Ok([1, 2, 3, 4, 5, 6])
+      .traverse(
+        async (x) => {
+          let b = await delay(100)(x)
+          return b.map((x) => x + 1)
+        },
+        Box.TraverseAll,
+        2 // only 2 items in parallel in a given time
+      )
+      .run((x) => {
+        let dur = Date.now() - start
+        t.ok(dur > 300 - diff && dur < 330 + diff, `parallel run (max invocations = 2) with All takes same time as items/max invocations: ${dur}`)
+        verify("traverse all returns all values", Box.Ok([2, 3, 4, 5, 6, 7]))(x)
+      })
+  }
 
-  // traverse allSettled run parallel with all errors
-  start = Date.now()
-  Box.Ok([1, 2, 3])
-    .traverse((x) => Box.Err(x), Box.TraverseAllSettled, Box.TraverseParallel)
-    .run((x) => {
-      verify("traverse allSettled all errors returns Err", Box.Err([Box.Err(1), Box.Err(2), Box.Err(3)]))(x)
-    })
+  {
+    // traverse all run parallel with max invocations
+    let start = Date.now()
+    Box.Ok([1, 2, 3, 4, 5])
+      .traverse(
+        async (x) => {
+          let b = await delay(x * 10)(x)
+          return b.map((x) => x + 1)
+        },
+        Box.TraverseAll,
+        3 // only 3 items in parallel in a given time
+      )
+      .run((x) => {
+        let dur = Date.now() - start
+        t.ok(dur > 70 - diff && dur < 80 + diff, `parallel run (max invocations = 3) with All takes same time as items/max invocations: ${dur}`)
+        verify("traverse all returns all values", Box.Ok([2, 3, 4, 5, 6]))(x)
+      })
+  }
 
-  // traverse allOk run parallel with errors
-  start = Date.now()
-  Box.Ok([1, 2, 3])
-    .traverse((x) => (x === 3 ? Box.Err(x) : delay(100)(x)), Box.TraverseAllOk, Box.TraverseParallel)
-    .run((x) => {
-      let dur = Date.now() - start
-      t.ok(dur > 100 - diff && dur < 120 + diff, `parallel run with AllOk waits for all of them: dur:${dur}`)
-      verify("traverse allOk returns only Ok values", Box.Ok([1, 2]))(x)
-    })
+  {
+    // traverse all run parallel with max invocations verifying if the order is maintained fine
+    let start = Date.now()
+    Box.Ok([5, 4, 3, 2, 1])
+      .traverse(
+        async (x) => {
+          let b = await delay(x * 10)(x)
+          return b.map((x) => x + 1)
+        },
+        Box.TraverseAll,
+        3 // only 3 items in parallel in a given time
+      )
+      .run((x) => {
+        let dur = Date.now() - start
+        t.ok(dur > 50 - diff && dur < 60 + diff, `parallel run (max invocations = 3) with All takes same time as items/max invocations ensuring order: ${dur}`)
+        verify("traverse all returns all values in order", Box.Ok([6, 5, 4, 3, 2]))(x)
+      })
+  }
 
-  // traverse allOk run parallel with all errors
-  start = Date.now()
-  Box.Ok([1, 2, 3])
-    .traverse((x) => Box.Err(x), Box.TraverseAllOk, Box.TraverseParallel)
-    .run((x) => {
-      verify("traverse allOk all errors returns Err", Box.Err([1, 2, 3]))(x)
-    })
+  {
+    // traverse allSettled run parallel with errors
+    let start = Date.now()
+    Box.Ok([1, 2, 3])
+      .traverse((x) => (x === 3 ? Box.Err(x) : delay(100)(x)), Box.TraverseAllSettled, Box.TraverseParallel)
+      .run((x) => {
+        let dur = Date.now() - start
+        t.ok(dur > 100 - diff && dur < 120 + diff, `parallel run with AllSettled waits for all of them: dur:${dur}`)
+        verify("traverse allSettled returns all of them", Box.Ok([1, 2, Box.Err(3)]))(x)
+      })
+  }
+
+  {
+    // traverse allSettled run parallel with all errors
+    let start = Date.now()
+    Box.Ok([1, 2, 3])
+      .traverse((x) => Box.Err(x), Box.TraverseAllSettled, Box.TraverseParallel)
+      .run((x) => {
+        verify("traverse allSettled all errors returns Err", Box.Err([Box.Err(1), Box.Err(2), Box.Err(3)]))(x)
+      })
+  }
+
+  {
+    // traverse allOk run parallel with errors
+    let start = Date.now()
+    Box.Ok([1, 2, 3])
+      .traverse((x) => (x === 3 ? Box.Err(x) : delay(100)(x)), Box.TraverseAllOk, Box.TraverseParallel)
+      .run((x) => {
+        let dur = Date.now() - start
+        t.ok(dur > 100 - diff && dur < 120 + diff, `parallel run with AllOk waits for all of them: dur:${dur}`)
+        verify("traverse allOk returns only Ok values", Box.Ok([1, 2]))(x)
+      })
+  }
+
+  {
+
+    // traverse allOk run parallel with all errors
+    let start = Date.now()
+    Box.Ok([1, 2, 3])
+      .traverse((x) => Box.Err(x), Box.TraverseAllOk, Box.TraverseParallel)
+      .run((x) => {
+        verify("traverse allOk all errors returns Err", Box.Err([1, 2, 3]))(x)
+      })
+  }
 })
 
 test("Box maybeToBox ", function (t) {

@@ -65,8 +65,8 @@ function inspect(x) {
     }, []).join(", ") + " }";
   }
   if (isString(x)) {
-    if (x.length > 100)
-      return ' "' + x.slice(0, 100) + `.... (${x.length})"`;
+    if (x.length > 300)
+      return ' "' + x.slice(0, 300) + `.... (${x.length})"`;
     return ' "' + x + '"';
   }
   if (isSymbol(x) || isDate(x)) {
@@ -671,10 +671,19 @@ var traverseRun = curry3((travFn, cancels, method, mode, handoff, inResult) => {
         next(a[1], a[0]);
       return v;
     }),
+    takeN: (o, n, next) => {
+      o.modify((v) => {
+        let aa = v.queues.splice(0, n);
+        aa.map((a) => isArray3(a) && a.length === 2 && next(a[1], a[0]));
+        return v;
+      });
+    },
     takeAll: (o, next) => {
       o.modify((v) => {
-        v.queues.map((a) => isArray3(a) && a.length === 2 && next(a[1], a[0]));
-        v.queues = [];
+        let aa = v.queues.splice(0);
+        aa.map((a) => {
+          isArray3(a) && a.length === 2 && next(a[1], a[0]);
+        });
         return v;
       });
     },
@@ -722,13 +731,15 @@ var traverseRun = curry3((travFn, cancels, method, mode, handoff, inResult) => {
       traverseResolve(method, cancels, results, index, onceHandoff),
       runBoxOk(cancels.push, unit, get("state")),
       // run box ok
-      resolvePromiseOk(travFn),
+      resolvePromiseOk((a) => travFn(a, index)),
       curry3((next, a) => next(result.Ok(a))),
       logF("trav run step 1")
     )
   );
   if (mode === Box.TraverseSeries)
     results.takeOne(fn);
+  else if (isInteger(mode))
+    results.takeN(mode, fn);
   else
     results.takeAll(fn);
 });
@@ -802,8 +813,12 @@ function Box(fn, u, st) {
   };
   const toPair = () => Pair(x === symNoData ? result.Err(null) : x, _state === symNoData ? void 0 : _state);
   const toResult = () => x === symNoData ? result.Err(null) : x;
-  const toValue = () => x;
+  const toValue = () => x === symNoData ? void 0 : resultToValue(x);
   const toState = () => _state;
+  const toJson = () => ({
+    "result": x === symNoData ? { "err": null } : !isResult(x) ? { "err": null } : x.tag() === "Ok" ? { "ok": x.b.value() } : { "err": x.a.value() },
+    "state": _state
+  });
   function runWith(resolve, state) {
     if (!isFunction4(resolve)) {
       Box.debug === false || console.log(`resolve: ${resolve}`);
@@ -976,8 +991,8 @@ function Box(fn, u, st) {
       throw new TypeError("Box.traverse: Parameter must be a function returning Box");
     if (!(method === Box.TraverseAll || method === Box.TraverseAllOk || method === Box.TraverseAllSettled || method === Box.TraverseAny || method === Box.TraverseRace))
       throw new TypeError("Box.traverse: method needs to be All | AllSettled | AllOk | Any | Race");
-    if (!(mode === Box.TraverseSeries || mode === Box.TraverseParallel))
-      throw new TypeError("Box.traverse: mode needs to be Series | Parallel");
+    if (!(mode === Box.TraverseSeries || mode === Box.TraverseParallel || isInteger(mode) && mode > 0 && mode < 1e3))
+      throw new TypeError("Box.traverse: mode needs to be Series | Parallel | Integer");
     return Box((resolve, state) => {
       let { get, set, keyf } = Store();
       let cancels = keyf("cancels", {
@@ -1092,6 +1107,7 @@ function Box(fn, u, st) {
     toResult,
     toValue,
     toState,
+    toJson,
     constructor: Box
   };
 }
@@ -1120,6 +1136,9 @@ Box.toValue = unary(
 );
 Box.toState = unary(
   compose((box) => box.toState(), unless(and(isBox, inBoxMode), throwError("Box.toState Box needed")))
+);
+Box.toJson = unary(
+  compose((box) => box.toJson(), unless(and(isBox, inBoxMode), throwError("Box.toJson Box needed")))
 );
 Box.buildPair = binary((x, s) => Pair(result.Ok(x), s));
 Box.fromPromise = fromPromise;

@@ -568,6 +568,8 @@ const traverseRun = curry((travFn, cancels, method, mode, handoff, inResult) => 
 
   var { get, keyf } = Store()
 
+  // setTimeout is called on next(), because next() immediately calls the function and if the 
+  // function does not wait for anything, it completes before returning control to this function back
   let results = keyf("results", {
     isAllProcessed: (o) => Object.keys(o.get().results).length === o.get().total,
     takeOne: (o, next) =>
@@ -576,10 +578,19 @@ const traverseRun = curry((travFn, cancels, method, mode, handoff, inResult) => 
         if (isArray(a) && a.length === 2) next(a[1], a[0])
         return v
       }),
+    takeN: (o, n, next) => {
+      o.modify((v) => {
+        let aa = v.queues.splice(0, n)
+        aa.map((a) => isArray(a) && a.length === 2 && next(a[1], a[0]))
+        return v
+      })
+    },
     takeAll: (o, next) => {
       o.modify((v) => {
-        v.queues.map((a) => isArray(a) && a.length === 2 && next(a[1], a[0]))
-        v.queues = []
+        let aa = v.queues.splice(0)
+        aa.map((a) => {
+          isArray(a) && a.length === 2 && next(a[1], a[0])
+        })
         return v
       })
     },
@@ -626,13 +637,14 @@ const traverseRun = curry((travFn, cancels, method, mode, handoff, inResult) => 
       }),
       traverseResolve(method, cancels, results, index, onceHandoff),
       runBoxOk(cancels.push, unit, get("state")), // run box ok
-      resolvePromiseOk(travFn),
+      resolvePromiseOk(a => travFn(a, index)),
       curry((next, a) => next(result.Ok(a))),
       logF("trav run step 1")
     )
   )
 
   if (mode === Box.TraverseSeries) results.takeOne(fn)
+  else if (isInteger(mode)) results.takeN(mode, fn)
   else results.takeAll(fn)
 })
 
@@ -726,8 +738,18 @@ export function Box(fn, u, st) {
 
   const toPair = () => Pair(x === symNoData ? result.Err(null) : x, _state === symNoData ? undefined : _state)
   const toResult = () => (x === symNoData ? result.Err(null) : x)
-  const toValue = () => x
+  const toValue = () => (x === symNoData ? undefined : resultToValue(x))
   const toState = () => _state
+  const toJson = () => ({
+    "result": x === symNoData
+      ? { "err": null }
+      : !isResult(x)
+        ? { "err": null }
+        : x.tag() === "Ok"
+          ? { "ok": x.b.value() }
+          : { "err": x.a.value() },
+    "state": _state
+  })
 
   // runWith :: (Pair r s -> (() -> ())) -> s -> (() -> ())
   function runWith(resolve, state) {
@@ -922,7 +944,7 @@ export function Box(fn, u, st) {
     })
   }
 
-  // traverse :: (a -> Box r s) -> str -> str -> Box r s
+  // traverse :: (a -> Box r s) -> str -> (str|int) -> Box r s
   function traverse(travFn, method = Box.TraverseAll, mode = Box.TraverseParallel) {
     if (!isFunction(travFn)) throw new TypeError("Box.traverse: Parameter must be a function returning Box")
     if (
@@ -936,8 +958,8 @@ export function Box(fn, u, st) {
     )
       throw new TypeError("Box.traverse: method needs to be All | AllSettled | AllOk | Any | Race")
 
-    if (!(mode === Box.TraverseSeries || mode === Box.TraverseParallel))
-      throw new TypeError("Box.traverse: mode needs to be Series | Parallel")
+    if (!(mode === Box.TraverseSeries || mode === Box.TraverseParallel || (isInteger(mode) && mode > 0 && mode < 1000)))
+      throw new TypeError("Box.traverse: mode needs to be Series | Parallel | Integer")
     return Box((resolve, state) => {
       let { get, set, keyf } = Store()
       let cancels = keyf("cancels", {
@@ -1076,6 +1098,7 @@ export function Box(fn, u, st) {
     toResult,
     toValue,
     toState,
+    toJson,
     constructor: Box,
   }
 }
@@ -1105,6 +1128,9 @@ Box.toValue = unary(
 )
 Box.toState = unary(
   compose((box) => box.toState(), unless(and(isBox, inBoxMode), throwError("Box.toState Box needed")))
+)
+Box.toJson = unary(
+  compose((box) => box.toJson(), unless(and(isBox, inBoxMode), throwError("Box.toJson Box needed")))
 )
 
 Box.buildPair = binary((x, s) => Pair(result.Ok(x), s))
