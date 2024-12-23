@@ -339,6 +339,7 @@ var composeA = (args) => compose(...args);
 var isFnType = (type2, f) => isFunction4(f) && f.type === type2;
 var isBox = (box) => isObject4(box) && isFunction4(box.type) && box.type() === "Box";
 var inBoxMode = (box) => box.extract() !== symNoData;
+var isCancelled = (box) => isBox(box) && box.exp?.abortController.signal.aborted;
 var result = defineUnion({ Err: ["a"], Ok: ["b"] });
 var log = (str) => (x) => {
   Box.debug ? console.log(`log -> ${str}`, inspect(x)) : "";
@@ -446,12 +447,29 @@ var waitUntil = curry3((timeout, interval, fn, a) => {
   });
   return Box(a).chain(cfn).race(Box.rejectAfter(timeout, "Box.waitUntil: Timed out"));
 });
-var resolvePromise = (resolve) => (promise) => {
+var resolvePromise = (abortController, resolve) => (promise) => {
   if (!isPromise(promise))
     return resolve(isResult(promise) ? promise : result.Ok(promise));
+  let called = false;
+  let abortListener;
+  const onceResolve = (x) => {
+    if (called === false) {
+      if (abortController)
+        abortController.signal.removeEventListener("abort", abortListener);
+      called = true;
+      resolve(x);
+    }
+  };
+  if (abortController) {
+    abortListener = ({ target }) => {
+      abortController.signal.removeEventListener("abort", abortListener);
+      called = true;
+    };
+    abortController.signal.addEventListener("abort", abortListener);
+  }
   promise.then(
-    (x) => resolve(result.Ok(x)),
-    (e) => resolve(result.Err(e))
+    (x) => onceResolve(result.Ok(x)),
+    (e) => onceResolve(result.Err(e))
   );
 };
 var _either = (f, g) => {
@@ -477,9 +495,14 @@ var resultToArray = (u) => {
 var unsafeSnd = (a) => a[1];
 var _of2 = function(x, st) {
   let u = result.includes(x) ? x : result.Ok(x);
-  let fn1 = (resolve, s) => resolve(Pair(u, s || st));
-  fn1.nm = "Box.of";
-  return Box(fn1, u, st);
+  return Box(
+    (resolve, state) => {
+      resolve(Pair(u, state));
+      return unit;
+    },
+    u,
+    st
+  );
 };
 var pairToResult = unary(compose(fst, unless(isSameType(Pair), throwError("pairToResult: Pair needed"))));
 var pairToArray = unary(
@@ -500,16 +523,16 @@ var startChain = curry3(
   )
 );
 var resolvePromiseOk = curry3(
-  (mapFn, next) => _either(
+  (abortController, mapFn, next) => _either(
     compose(next, result.Err),
     // for error, just next
-    compose(resolvePromise(next), mapFn)
+    compose(resolvePromise(abortController, next), mapFn)
     // for ok, resolve promise and then next
   )
 );
 var resolvePromiseErr = curry3(
-  (mapFn, next) => _either(
-    compose(resolvePromise(next), mapFn),
+  (abortController, mapFn, next) => _either(
+    compose(resolvePromise(abortController, next), mapFn),
     // for err, resolve promise and then next
     compose(next, result.Err)
     // for ok, just next
@@ -517,35 +540,35 @@ var resolvePromiseErr = curry3(
 );
 var resultForceError = _either(compose(result.Err), compose(result.Err));
 var resolvePromiseEither = curry3(
-  (errFn, okFn, next) => _either(
-    compose(resolvePromise(compose(next, resultForceError)), errFn),
+  (abortController, errFn, okFn, next) => _either(
+    compose(resolvePromise(abortController, compose(next, resultForceError)), errFn),
     // resolve for err
-    compose(resolvePromise(next), okFn)
+    compose(resolvePromise(abortController, next), okFn)
     // as well as for ok. One of them will get called
   )
 );
 var callAltFn = curry3(
-  (altFn, next) => _either(
+  (abortController, altFn, next) => _either(
     ifElse(
       () => isBox(altFn),
       // condition
       compose(next, () => result.Err(altFn)),
       // if
-      compose(resolvePromise(compose(next, resultForceError)), (x) => isFunction4(altFn) ? altFn(x) : x)
+      compose(resolvePromise(abortController, compose(next, resultForceError)), (x) => isFunction4(altFn) ? altFn(x) : x)
       // else
     ),
     compose(next, result.Ok)
   )
 );
 var callFnOrBox = curry3(
-  (fn, next) => _either(
+  (abortController, fn, next) => _either(
     compose(next, result.Err),
     ifElse(
       () => isBox(fn),
       // condition
       compose(next, () => result.Ok(fn)),
       // if
-      compose(resolvePromise(next), (x) => isFunction4(fn) ? fn(x) : x)
+      compose(resolvePromise(abortController, next), (x) => isFunction4(fn) ? fn(x) : x)
       // else
     )
   )
@@ -655,7 +678,7 @@ var traverseResolve = curry3((method, cancels, results, index, end, next, r) => 
     log("trav resolve step 1")
   )(r);
 });
-var traverseRun = curry3((travFn, cancels, method, mode, handoff, inResult) => {
+var traverseRun = curry3((abortController, travFn, cancels, method, mode, handoff, inResult) => {
   if (!isResultOk(inResult))
     return handoff(inResult);
   let queues = arrayToIndexedArray(resultToValue(inResult));
@@ -731,7 +754,7 @@ var traverseRun = curry3((travFn, cancels, method, mode, handoff, inResult) => {
       traverseResolve(method, cancels, results, index, onceHandoff),
       runBoxOk(cancels.push, unit, get("state")),
       // run box ok
-      resolvePromiseOk((a) => travFn(a, index)),
+      resolvePromiseOk(abortController, (a) => travFn(a, index)),
       curry3((next, a) => next(result.Ok(a))),
       logF("trav run step 1")
     )
@@ -849,7 +872,7 @@ function Box(fn, u, st) {
       return runWith(
         composeF(
           handoffToResolve(get("state"), resolve),
-          resolvePromiseOk(mapFn),
+          resolvePromiseOk(exp.abortController, mapFn),
           startChain(set("result"), set("state"))
         ),
         state
@@ -864,7 +887,7 @@ function Box(fn, u, st) {
       return runWith(
         composeF(
           handoffToResolve(get("state"), resolve),
-          resolvePromiseEither(errFn, okFn),
+          resolvePromiseEither(exp.abortController, errFn, okFn),
           startChain(set("result"), set("state"))
         ),
         state
@@ -883,12 +906,15 @@ function Box(fn, u, st) {
           handoffToResolve(get("state"), resolve),
           eitherAlt(get("result")),
           runBoxErr(set("innerCancel"), set("state"), get("state")),
-          callAltFn(altFn),
+          callAltFn(exp.abortController, altFn),
           startChain(set("result"), set("state"))
         ),
         state
       );
-      return once(() => cancel(get("innerCancel")()));
+      return once(() => {
+        let innerCancelFn = get("innerCancel")();
+        cancel(isFunction4(innerCancelFn) ? innerCancelFn() : void 0);
+      });
     });
   }
   function chain(chainFn) {
@@ -901,16 +927,25 @@ function Box(fn, u, st) {
         composeF(
           handoffToResolve(get("state"), resolve),
           runBoxOk(set("innerCancel"), set("state"), get("state")),
-          resolvePromiseOk(chainFn),
+          resolvePromiseOk(exp.abortController, chainFn),
           startChain(set("result"), set("state"))
         ),
         state
       );
-      return once(() => cancel(get("innerCancel")()));
+      return once(() => {
+        let innerCancelFn = get("innerCancel")();
+        cancel(isFunction4(innerCancelFn) ? innerCancelFn() : void 0);
+      });
     });
   }
   function chainSetPath(path, chainFn) {
     return chain((args) => chainFn().map((x2) => setPath(path, constant2(x2), args)));
+  }
+  function chainWithIsCancelled(chainFn) {
+    return chain((args) => {
+      let box = Box(args);
+      return box.chain((x2) => chainFn(x2, () => Box.isCancelled(box)));
+    });
   }
   function bichain(errFn, okFn) {
     if (!isFunction4(errFn) || !isFunction4(okFn))
@@ -922,12 +957,15 @@ function Box(fn, u, st) {
         composeF(
           handoffToResolve(get("state"), resolve),
           runBoxEither(set("innerCancel"), set("state"), get("state")),
-          resolvePromiseEither(errFn, okFn),
+          resolvePromiseEither(exp.abortController, errFn, okFn),
           startChain(set("result"), set("state"))
         ),
         state
       );
-      return once(() => cancel(get("innerCancel")()));
+      return once(() => {
+        let innerCancelFn = get("innerCancel")();
+        cancel(isFunction4(innerCancelFn) ? innerCancelFn() : void 0);
+      });
     });
   }
   function chainAll(chainFns) {
@@ -956,13 +994,16 @@ function Box(fn, u, st) {
           handoffToResolve(get("state"), resolve),
           runApFunc(get("result")),
           runBoxOk(set("innerCancel"), set("state"), get("state")),
-          callFnOrBox(apFn),
+          callFnOrBox(exp.abortController, apFn),
           verifyAp,
           startChain(set("result"), set("state"))
         ),
         state
       );
-      return once(() => cancel(get("innerCancel")()));
+      return once(() => {
+        let innerCancelFn = get("innerCancel")();
+        cancel(isFunction4(innerCancelFn) ? innerCancelFn() : void 0);
+      });
     });
   }
   function race(m) {
@@ -981,9 +1022,12 @@ function Box(fn, u, st) {
       composeF(
         resolveFirst(called, _state2, cancel, resolve),
         runBoxOk(set("innerCancel"), set("state2"), get("state")),
-        callFnOrBox(raceFn)
+        callFnOrBox(exp.abortController, raceFn)
       )(result.Ok(void 0));
-      return once(() => cancel(innerCancel.get()));
+      return once(() => {
+        let innerCancelFn = get("innerCancel")();
+        cancel(isFunction4(innerCancelFn) ? innerCancelFn() : void 0);
+      });
     });
   }
   function traverse(travFn, method = Box.TraverseAll, mode = Box.TraverseParallel) {
@@ -1014,7 +1058,7 @@ function Box(fn, u, st) {
         composeF(
           handoffToResolve(get("state"), once(resolve)),
           logF("traverse step 3"),
-          traverseRun(travFn, cancels, method, mode),
+          traverseRun(exp.abortController, travFn, cancels, method, mode),
           logF("traverse step 2"),
           startChain(set("result"), set("state")),
           logF("traverse step 1")
@@ -1052,18 +1096,19 @@ function Box(fn, u, st) {
   function traverseRace(travFn) {
     return traverse(travFn, Box.TraverseRace, Box.TraverseParallel);
   }
-  function runPromise(s, to = Box.pairToBox) {
+  function runPromise(s, to = Box.pairToBox, setCancelFn = unit) {
     return new Promise((resolve) => {
       const rmEvList = (x2) => {
         exp.abortController.signal.removeEventListener("abort", abortListener);
         return x2;
       };
       resolve.nm = "promresolve";
-      let cancel = unit;
-      cancel = runWith(compose(cancel, rmEvList, resolve, log("runp step 2"), to, log("runp inp")), s);
+      let cancel = runWith(compose(rmEvList, resolve, log("runp step 2"), to, log("runp inp")), s);
+      if (isFunction4(setCancelFn))
+        setCancelFn(cancel);
       const abortListener = ({ target }) => {
         rmEvList();
-        resolve(Pair(result.Err(target.reason), void 0));
+        compose(resolve, to)(Pair(result.Err(target.reason), void 0));
       };
       exp.abortController.signal.addEventListener("abort", abortListener);
     });
@@ -1085,6 +1130,7 @@ function Box(fn, u, st) {
     alt,
     chain,
     chainSetPath,
+    chainWithIsCancelled,
     bichain,
     chainAll,
     mapAll,
@@ -1164,6 +1210,7 @@ Box.ResultToBox = ResultToBox;
 Box.isResult = isResult;
 Box.isResultOk = isResultOk;
 Box.isResultErr = isResultErr;
+Box.isCancelled = isCancelled;
 Box.isOk = compose(isResultOk, Box.toResult);
 Box.isErr = compose(isResultErr, Box.toResult);
 Box.tmp = {

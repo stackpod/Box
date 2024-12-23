@@ -18,6 +18,7 @@ const add1 = (x) => x + 1
 const add1Async = async (x) => x + 1
 const chainAdd1 = (x) => Box(x + 1)
 const delay = (ms) => (x) => new Promise((resolve) => setTimeout(() => resolve(x), ms))
+const sleep = (ms) => new Promise((resolve) => setTimeout(() => resolve(ms), ms))
 const chainAdd1Async = async (x) => Box(x + 1)
 const log = (x) => {
   console.log(`log:: ${x.inspect ? x.inspect() : x}`)
@@ -128,7 +129,8 @@ test("Box result error processing", function (t) {
 
 test("Box chain cancel test", function (t) {
   t.plan(2)
-  var res = sinon.spy(() => t.fail("resolve called after cancel"))
+  var start = Date.now()
+  var res = sinon.spy((x) => console.log("resolve called after cancel", Date.now() - start, x?.inspect()))
 
   var _add1 = sinon.spy(add1)
   const m = Box.Ok(1).chain(chainDelay(300)).map(_add1)
@@ -141,6 +143,88 @@ test("Box chain cancel test", function (t) {
     t.notOk(res.called, "resolve is never called")
     t.notOk(_add1.called, "map function add1 is never called")
   }, 400)
+})
+
+// previous test case had a promise fn: chainDelay
+test("Box chain cancel test without promise", function (t) {
+  t.plan(2)
+  var res = sinon.spy((x) => console.log("resolve called after cancel", x?.inspect()))
+
+  var _add1 = sinon.spy(add1)
+  const m = Box.Ok(1).chain(Box.delay(300)).map(_add1)
+
+  var cancel = m.run(res)
+
+  cancel()
+
+  setTimeout(() => {
+    t.notOk(res.called, "resolve is never called")
+    t.notOk(_add1.called, "map function add1 is never called")
+  }, 400)
+})
+
+test("Box chain cancel test with runPromise", async function (t) {
+  t.plan(3)
+
+  var _add1 = sinon.spy(add1)
+  const m = Box(1).chain(chainDelay(300)).map(_add1)
+
+  let cancel = null
+  let ret
+
+  setTimeout(() => {
+    cancel && cancel()
+  }, 200)
+
+  const check = async () => {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        t.ok(Box.isBox(ret), "returned value is a Box")
+        t.equals(ret.inspect(), Box.Err("cancelled").inspect(), "runPromise returns error on cancel")
+        t.notOk(_add1.called, "map function add1 is never called")
+        resolve()
+      }, 400)
+    })
+  }
+
+  ret = await m.runPromise(undefined, Box.pairToBox, (_cancel) => { cancel = _cancel })
+  await check()
+})
+
+test("Box chain cancel test with isCancelled option", async function (t) {
+  t.plan(3)
+
+  var _add1 = sinon.spy(add1)
+  var cnt = 0
+  let fnA = async (x, isCancelled) => {
+    while (true) {
+      if (isCancelled()) return Box(cnt)
+      await sleep(100)
+      cnt++
+    }
+  }
+  const m = Box(1).chainWithIsCancelled(fnA).map(_add1)
+
+  let cancel = null
+  let ret
+
+  setTimeout(() => {
+    cancel && cancel()
+  }, 200)
+
+  const check = async () => {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        t.ok(Box.isBox(ret), "returned value is a Box")
+        t.equals(ret.inspect(), Box.Err("cancelled").inspect(), "runPromise returns error on cancel")
+        t.notOk(_add1.called, "map function add1 is never called")
+        resolve()
+      }, 400)
+    })
+  }
+
+  ret = await m.runPromise(undefined, Box.pairToBox, (_cancel) => { cancel = _cancel })
+  await check()
 })
 
 test("Box resolveAfter", function (t) {
