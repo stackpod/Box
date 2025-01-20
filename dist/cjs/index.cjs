@@ -370,12 +370,18 @@ var resultToValue = unary(
 function getState(fn) {
   if (!isFunction4(fn))
     fn = identity;
-  return Box((resolve, s) => resolve(Pair(result.Ok(fn(s)), s)));
+  return Box((resolve, s) => {
+    resolve(Pair(result.Ok(fn(s)), s));
+    return void 0;
+  });
 }
 function modifyState(fn, x) {
   if (!isFunction4(fn))
     throw new TypeError("Box.modifyState: Function Required");
-  return Box((resolve, s) => resolve(Pair(result.Ok(x), fn(s))));
+  return Box((resolve, s) => {
+    resolve(Pair(result.Ok(x), fn(s)));
+    return void 0;
+  });
 }
 function fromPromise(fn) {
   if (!isFunction4(fn))
@@ -922,7 +928,7 @@ function Box(fn, u, st) {
       throw new TypeError("Box.chain: Parameter must be function");
     return Box((resolve, state) => {
       let { get, set } = Store();
-      set("innnerCancel", unit);
+      set("innerCancel", unit);
       let cancel = runWith(
         composeF(
           handoffToResolve(get("state"), resolve),
@@ -952,7 +958,7 @@ function Box(fn, u, st) {
       throw new TypeError("Box.bichain: Both params must be functions ");
     return Box((resolve, state) => {
       let { get, set } = Store();
-      set("innnerCancel", unit);
+      set("innerCancel", unit);
       let cancel = runWith(
         composeF(
           handoffToResolve(get("state"), resolve),

@@ -181,13 +181,19 @@ const resultToValue = unary(
 // getState :: (s -> s) -> Box s s
 function getState(fn) {
   if (!isFunction(fn)) fn = identity
-  return Box((resolve, s) => resolve(Pair(result.Ok(fn(s)), s)))
+  return Box((resolve, s) => {
+    resolve(Pair(result.Ok(fn(s)), s))
+    return undefined // return a cancel function or undefined
+  })
 }
 
 // modifyState :: (s -> s) -> a -> Box a s
 function modifyState(fn, x) {
   if (!isFunction(fn)) throw new TypeError("Box.modifyState: Function Required")
-  return Box((resolve, s) => resolve(Pair(result.Ok(x), fn(s))))
+  return Box((resolve, s) => {
+    resolve(Pair(result.Ok(x), fn(s)))
+    return undefined  // Return a cancel function or undefined
+  })
 }
 
 // Box.fromPromise :: (* -> Promise a e) -> (* => Box r s)
@@ -866,7 +872,7 @@ export function Box(fn, u, st) {
     if (!isFunction(chainFn)) throw new TypeError("Box.chain: Parameter must be function")
     return Box((resolve, state) => {
       let { get, set } = Store()
-      set("innnerCancel", unit)
+      set("innerCancel", unit)
       let cancel = runWith(
         composeF(
           handoffToResolve(get("state"), resolve),
@@ -902,7 +908,7 @@ export function Box(fn, u, st) {
     if (!isFunction(errFn) || !isFunction(okFn)) throw new TypeError("Box.bichain: Both params must be functions ")
     return Box((resolve, state) => {
       let { get, set } = Store()
-      set("innnerCancel", unit)
+      set("innerCancel", unit)
       let cancel = runWith(
         composeF(
           handoffToResolve(get("state"), resolve),
